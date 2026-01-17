@@ -221,3 +221,31 @@ def send(archivo, destino):
             click.echo("Archivo zip local eliminado.")
         except:
             pass
+
+@cli.command()
+@click.argument('filename', type=str)
+@click.argument('code', type=str)
+def decrypt(filename: str, code: str):
+    """Desencripta y extrae un archivo recibido (usa el código de 6 dígitos)"""
+    import requests
+    
+    url = f"http://localhost:{PORT}/files/decrypt/{filename}?code={code}"
+    
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        click.echo("\n" + "="*60)
+        click.echo("¡ÉXITO! Archivo desencriptado correctamente")
+        click.echo(data.get("message", "Extraído en carpeta 'extracted'"))
+        click.echo("="*60 + "\n")
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            click.echo("✗ Código incorrecto o passphrase no coincide")
+        elif e.response.status_code == 404:
+            click.echo(f"✗ Archivo '{filename}' no encontrado en temp_downloads")
+        else:
+            click.echo(f"✗ Error del servidor: {e}")
+    except Exception as e:
+        click.echo(f"✗ No se pudo conectar al backend local: {e}")
+        click.echo("   Asegúrate de que el servidor esté corriendo con 'file-meet start'")
