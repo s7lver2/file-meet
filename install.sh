@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-INSTALL_DIR="${1:-$HOME/file-meet}"
+INSTALL_DIR="/home/$USER/file-meet"
 PORT=42532
 
 handle_error() {
@@ -21,17 +21,16 @@ if [ -d "$INSTALL_DIR" ]; then
     echo "Actualizando repositorio..."
     cd "$INSTALL_DIR" || handle_error "No se pudo cd"
     git pull || handle_error "git pull falló"
-    cd ../ && cp -r ~/file-meet && cd ~/file-meet
 fi
 
 # 2. Entorno virtual
-if [ ! -d ".venv" ]; then
+if [ ! -d "venv" ]; then
     echo "Creando venv..."
-    python3 -m venv .venv || handle_error "venv falló"
+    python3 -m venv venv || handle_error "venv falló"
 fi
 
 echo "Activando venv..."
-source .venv/bin/activate || handle_error "activate falló"
+source venv/bin/activate || handle_error "activate falló"
 
 # 3. Dependencias (sin nuitka)
 echo "Instalando dependencias..."
@@ -41,7 +40,7 @@ pip install -r requirements.txt || echo "⚠ requirements.txt falló – sigue a
 echo "✓ Dependencias listas"
 
 # 4. Rutas importantes
-PYTHON_BIN="$INSTALL_DIR/.venv/bin/python"
+PYTHON_BIN="$INSTALL_DIR/usr/bin/python3"
 MAIN_SCRIPT="$INSTALL_DIR/main.py"
 
 [ -f "$PYTHON_BIN" ] || handle_error "No se encuentra python en venv"

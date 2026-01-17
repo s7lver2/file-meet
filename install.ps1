@@ -2,7 +2,7 @@
 param (
     [string]$InstallDir = "$env:USERPROFILE\file-meet",
     [int]$Port = 42532,
-    [string]$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+    [string]$NssmUrl = "https://github.com/kirillkovalenko/nssm"
 )
 
 function Handle-Error {
@@ -26,17 +26,21 @@ if (-not (Test-Path ".venv")) {
     python -m venv .venv
 }
 
+Copy-Item "$InstallDir\main.py" -Destination "$InstallDir\file-meet.py"
+
 # Activamos para instalar dependencias (pero el servicio usará el python del venv directamente)
 & ".\.venv\Scripts\Activate.ps1"
 
 # 4. Ruta al python del venv y al main.py
 $PythonExe = Join-Path $InstallDir ".venv\Scripts\python.exe"
-$MainScript = Join-Path $InstallDir "main.py"
+$MainScript = Join-Path $InstallDir "file-meet.py"
+
+
 
 # 3. Instalar dependencias (sin nuitka)
 
 Write-Host "Instalando dependencias..."
-python -m pip install --upgrade pip setuptools wheel
+py -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt -q  # -q para menos ruido, quita si quieres ver todo
 
 Write-Host "✓ Dependencias instaladas"
@@ -45,9 +49,9 @@ if (-not (Test-Path $PythonExe)) { Handle-Error "No se encuentra python en el ve
 if (-not (Test-Path $MainScript)) { Handle-Error "No se encuentra main.py" }
 
 # 5. Descargar NSSM si no existe
-$NssmDir = "$env:USERPROFILE\Tools\nssm"
+$NssmDir = "$env:USERPROFILE"
 $NssmZip = "$NssmDir\nssm.zip"
-$NssmExe = "$NssmDir\nssm-2.24\win64\nssm.exe"   # ruta típica en zip
+$NssmExe = "$NssmDir\nssm-2.24\nssm-2.24\win64\nssm.exe"   # ruta típica en zip
 
 if (-not (Test-Path $NssmExe)) {
     Write-Host "Descargando NSSM..."
@@ -62,7 +66,7 @@ Write-Host "Configurando servicio con NSSM..."
 
 & $NssmExe remove file-meet confirm   # Borra si ya existe (para actualizar)
 & $NssmExe install file-meet $PythonExe
-& $NssmExe set file-meet AppParameters "main.py start --host 0.0.0.0 --port $Port"
+& $NssmExe set file-meet AppParameters "file-meet.py start"
 & $NssmExe set file-meet AppDirectory $InstallDir
 & $NssmExe set file-meet AppStdout "$InstallDir\service.log"
 & $NssmExe set file-meet AppStderr "$InstallDir\service-error.log"
