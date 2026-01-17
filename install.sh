@@ -1,93 +1,103 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# setup-file-meet.sh - Instala file-meet SIN Nuitka (ejecuta con python del venv)
 
-# setup-file-meet.sh - Automatiza descarga, instalación, compilación, servicio y PATH para file-meet
+set -euo pipefail
 
-# Parámetros opcionales
-INSTALL_DIR="${2:-$HOME/file-meet}"
+INSTALL_DIR="${1:-$HOME/file-meet}"
 PORT=42532
-NSSM_URL=""  # No aplica en Linux, usamos systemd
 
-# Función para errores
 handle_error() {
     echo "✗ Error: $1" >&2
     exit 1
 }
 
-# 2. Descargar/clonar repo
+echo "Iniciando instalación de file-meet (modo sin compilar)..."
+
+# Opcional: si usas Arch/Manjaro → patchelf no es necesario sin Nuitka
+# sudo pacman -S --noconfirm patchelf 2>/dev/null || true
+
+# 1. Clonar o actualizar
 if [ -d "$INSTALL_DIR" ]; then
-    echo "Directorio $INSTALL_DIR existe. Actualizando..."
-    cd "$INSTALL_DIR"
-    git pull
-else
+    echo "Actualizando repositorio..."
+    cd "$INSTALL_DIR" || handle_error "No se pudo cd"
+    git pull || handle_error "git pull falló"
+    cd ../ && cp -r ~/file-meet && cd ~/file-meet
+fi
 
-# 3. Crear y activar venv
+# 2. Entorno virtual
 if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    echo "Creando venv..."
+    python3 -m venv .venv || handle_error "venv falló"
 fi
-source .venv/bin/activate
 
-# 4. Instalar dependencias + Nuitka
-pip install -r requirements.txt
-pip install nuitka
+echo "Activando venv..."
+source .venv/bin/activate || handle_error "activate falló"
 
-# 5. Compilar con Nuitka (onefile)
-echo "Compilando con Nuitka..."
-python -m nuitka \
-    --standalone \
-    --onefile \
-    --output-dir=dist \
-    --include-package=backend \
-    --include-package=client \
-    --include-module=click \
-    --include-module=fastapi \
-    --include-module=uvicorn \
-    --include-module=requests \
-    --include-module=http.server \
-    --include-module=socketserver \
-    --include-module=asyncio \
-    --include-module=configparser \
-    --nofollow-imports \
-    --follow-import-to=backend,client,modules \
-    main.py  # Ajusta si tu entry es otro
+# 3. Dependencias (sin nuitka)
+echo "Instalando dependencias..."
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt || echo "⚠ requirements.txt falló – sigue adelante"
 
-EXE_PATH="$INSTALL_DIR/dist/file-meet"
-if [ ! -f "$EXE_PATH" ]; then
-    handle_error "Compilación falló. Revisa logs."
-fi
-chmod +x "$EXE_PATH"
+echo "✓ Dependencias listas"
 
-# 6. Instalar como servicio systemd
+# 4. Rutas importantes
+PYTHON_BIN="$INSTALL_DIR/.venv/bin/python"
+MAIN_SCRIPT="$INSTALL_DIR/main.py"
+
+[ -f "$PYTHON_BIN" ] || handle_error "No se encuentra python en venv"
+[ -f "$MAIN_SCRIPT" ] || handle_error "No se encuentra main.py"
+
+# 5. Servicio systemd
 SERVICE_FILE="/etc/systemd/system/file-meet.service"
-echo "Creando servicio systemd..."
-cat <<EOF | sudo tee $SERVICE_FILE
+
+echo "Creando servicio systemd (necesita sudo)..."
+
+sudo tee "$SERVICE_FILE" >/dev/null << EOF
 [Unit]
-Description=file-meet - Backend para compartir archivos seguros
+Description=file-meet - Compartir archivos seguros en LAN
 After=network.target
 
 [Service]
 User=$(whoami)
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$EXE_PATH start
+ExecStart=$PYTHON_BIN $MAIN_SCRIPT start --host 0.0.0.0 --port $PORT
 Restart=always
 RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable file-meet
-sudo systemctl start file-meet
+sudo systemctl enable file-meet --now
 
-# 7. Añadir al PATH del usuario
+echo ""
+sudo systemctl --no-pager status file-meet | head -n 12
+
+# 6. Comando global (opcional – symlink a un script wrapper)
 LOCAL_BIN="$HOME/.local/bin"
 mkdir -p "$LOCAL_BIN"
-cp "$EXE_PATH" "$LOCAL_BIN/file-meet"
+
+cat > "$LOCAL_BIN/file-meet" << EOF
+#!/usr/bin/env bash
+cd "$INSTALL_DIR" || exit 1
+source .venv/bin/activate
+exec python main.py "\$@"
+EOF
+
 chmod +x "$LOCAL_BIN/file-meet"
 
-if ! grep -q "$LOCAL_BIN" ~/.bashrc; then
-    echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-    source ~/.bashrc
+if ! grep -q "$LOCAL_BIN" "$HOME/.bashrc" 2>/dev/null; then
+    echo "export PATH=\"$HOME/.local/bin:\$PATH\"" >> "$HOME/.bashrc"
+    echo "export PATH=\"$HOME/.local/bin:\$PATH\"" >> "$HOME/.profile" 2>/dev/null || true
+    echo "→ Añadido ~/.local/bin al PATH → ejecuta 'source ~/.bashrc'"
 fi
 
-echo "✓ Proceso completado. Usa 'file-meet status' para verificar."
+echo ""
+echo "✓ Instalación completada (sin compilación)"
+echo "   - Ejecutar manual:   python main.py start --port 8080"
+echo "   - Comando global:    file-meet start"
+echo "   - Servicio:          sudo systemctl status file-meet"
+echo "   - Logs:              journalctl -u file-meet -f -n 50"
+echo "   - Detener:           sudo systemctl stop file-meet"

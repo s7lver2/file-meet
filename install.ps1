@@ -1,87 +1,91 @@
-# setup-file-meet.ps1 - Automatiza descarga, instalación, compilación, servicio y PATH para file-meet
-
-# Parámetros opcionales
+# setup-file-meet.ps1 - Instala y configura file-meet SIN compilar (usa venv)
 param (
     [string]$InstallDir = "$env:USERPROFILE\file-meet",
     [int]$Port = 42532,
     [string]$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
 )
 
-# Función para manejar errores
 function Handle-Error {
     param ([string]$Message)
     Write-Host "✗ Error: $Message" -ForegroundColor Red
     exit 1
 }
 
-# 2. Descargar repo
-if (Test-Path $InstallDir) {
-    Write-Host "Directorio $InstallDir ya existe. Actualizando..."
-    cd $InstallDir
-    git pull
-} 
+Write-Host "Iniciando instalación de file-meet (sin compilación)..."
 
-# 3. Crear y activar venv
+# 1. Clonar o actualizar repositorio
+if (Test-Path $InstallDir) {
+    Write-Host "Directorio ya existe → actualizando..."
+    Set-Location $InstallDir
+    git pull
+}
+
+# 2. Crear y activar venv
 if (-not (Test-Path ".venv")) {
+    Write-Host "Creando entorno virtual..."
     python -m venv .venv
 }
-. .\.venv\Scripts\Activate.ps1
 
-# 4. Instalar dependencias + Nuitka
-pip install -r requirements.txt
-pip install nuitka
+# Activamos para instalar dependencias (pero el servicio usará el python del venv directamente)
+& ".\.venv\Scripts\Activate.ps1"
 
-# 5. Compilar con Nuitka (onefile)
-Write-Host "Compilando con Nuitka..."
-python -m nuitka `
-    --standalone `
-    --onefile `
-    --output-dir=dist `
-    --include-package=backend `
-    --include-package=client `
-    --include-module=click `
-    --include-module=fastapi `
-    --include-module=uvicorn `
-    --include-module=requests `
-    --include-module=http.server `
-    --include-module=socketserver `
-    --include-module=asyncio `
-    --include-module=configparser `
-    --nofollow-imports `
-    --follow-import-to=backend,client,modules `
-    --windows-disable-console `
-    main.py  # Ajusta si tu entry es otro
+# 4. Ruta al python del venv y al main.py
+$PythonExe = Join-Path $InstallDir ".venv\Scripts\python.exe"
+$MainScript = Join-Path $InstallDir "main.py"
 
-$ExePath = "$InstallDir\dist\file-meet.exe"
-if (-not (Test-Path $ExePath)) {
-    Handle-Error "Compilación falló. Revisa logs."
-}
+# 3. Instalar dependencias (sin nuitka)
 
-# 6. Descargar e instalar NSSM si no está
+Write-Host "Instalando dependencias..."
+python -m pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt -q  # -q para menos ruido, quita si quieres ver todo
+
+Write-Host "✓ Dependencias instaladas"
+
+if (-not (Test-Path $PythonExe)) { Handle-Error "No se encuentra python en el venv" }
+if (-not (Test-Path $MainScript)) { Handle-Error "No se encuentra main.py" }
+
+# 5. Descargar NSSM si no existe
 $NssmDir = "$env:USERPROFILE\Tools\nssm"
-if (-not (Test-Path "$NssmDir\nssm.exe")) {
+$NssmZip = "$NssmDir\nssm.zip"
+$NssmExe = "$NssmDir\nssm-2.24\win64\nssm.exe"   # ruta típica en zip
+
+if (-not (Test-Path $NssmExe)) {
     Write-Host "Descargando NSSM..."
-    mkdir -p $NssmDir
-    Invoke-WebRequest -Uri $NssmUrl -OutFile "$NssmDir\nssm.zip"
-    Expand-Archive "$NssmDir\nssm.zip" -DestinationPath $NssmDir
-    $NssmExe = "$NssmDir\nssm-2.24\win64\nssm.exe"  # Ajusta si 32-bit
-} else {
-    $NssmExe = "$NssmDir\nssm.exe"
+    New-Item -ItemType Directory -Force -Path $NssmDir | Out-Null
+    Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip
+    Expand-Archive $NssmZip -DestinationPath $NssmDir -Force
+    Remove-Item $NssmZip -Force
 }
 
-# 7. Instalar como servicio
-Write-Host "Instalando servicio con NSSM..."
-& $NssmExe install file-meet "$ExePath" start
+# 6. Instalar/actualizar servicio con NSSM
+Write-Host "Configurando servicio con NSSM..."
+
+& $NssmExe remove file-meet confirm   # Borra si ya existe (para actualizar)
+& $NssmExe install file-meet $PythonExe
+& $NssmExe set file-meet AppParameters "main.py start --host 0.0.0.0 --port $Port"
+& $NssmExe set file-meet AppDirectory $InstallDir
+& $NssmExe set file-meet AppStdout "$InstallDir\service.log"
+& $NssmExe set file-meet AppStderr "$InstallDir\service-error.log"
+& $NssmExe set file-meet Description "file-meet - Compartir archivos en LAN"
 & $NssmExe set file-meet Start SERVICE_AUTO_START
-& $NssmExe set file-meet AppDirectory "$InstallDir"
-& $NssmExe set file-meet Description "file-meet - Backend para compartir archivos seguros"
+
+# Iniciar servicio
 & $NssmExe start file-meet
 
-# 8. Añadir al PATH del usuario
+Write-Host "Servicio instalado e iniciado. Revisa logs en:"
+Write-Host "  $InstallDir\service.log"
+Write-Host "  $InstallDir\service-error.log"
+
+# 7. Añadir al PATH (la carpeta del proyecto, para poder ejecutar manualmente si quieres)
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($UserPath -notlike "*$InstallDir\dist*") {
-    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir\dist", "User")
-    Write-Host "Añadido a PATH. Reinicia PowerShell para que surta efecto."
+if ($UserPath -notlike "*$InstallDir*") {
+    [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
+    Write-Host "Añadido $InstallDir al PATH de usuario (reinicia PowerShell)"
 }
 
-Write-Host "✓ Proceso completado. Usa 'file-meet status' para verificar."
+Write-Host ""
+Write-Host "✓ Instalación completada"
+Write-Host "   - Ejecutar manual:   .\.venv\Scripts\Activate.ps1 ; python main.py start"
+Write-Host "   - Servicio status:   nssm status file-meet   (o services.msc)"
+Write-Host "   - Logs:              $InstallDir\service*.log"
+Write-Host "   - Detener:           nssm stop file-meet"
