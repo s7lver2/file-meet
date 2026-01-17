@@ -191,7 +191,7 @@ def send(archivo, destino):
     click.echo(f"Servidor temporal activo en {download_url}")
     
     # Enviar petición al destino
-    target_url = f"http://{target_host}:8000/files/get"
+    target_url = f"http://{target_host}:{PORT}/files/get"
     payload = {
         "download_url": download_url,
         "filename": zip_name,

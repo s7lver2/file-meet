@@ -61,6 +61,13 @@ async def receive_file(payload: dict):
             "message": f"Archivo recibido y guardado como {filename}",
             "path": str(zip_path)
         })
+
+        print("\n" + "="*70)
+        print(f"¡NUEVO ARCHIVO RECIBIDO! → {filename}")
+        print(f"Guardado en: {zip_path}")
+        print(f"Para desencriptar → ejecuta: file-meet decrypt {filename} CODIGO_DE_6_DIGITOS")
+        print(f"O accede a: http://localhost:42532/files/decrypt/{filename}?code=XXXXXX")
+        print("="*70 + "\n")
     except Exception as e:
         raise HTTPException(500, f"Error al descargar archivo: {str(e)}")
 
