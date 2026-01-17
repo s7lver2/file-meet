@@ -1,1 +1,1 @@
-click psutil fastapi[standard] requests
+click psutil fastapi[standard]

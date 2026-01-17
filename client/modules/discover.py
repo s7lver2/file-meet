@@ -89,42 +89,64 @@ def fetch_meet_data(ip: str) -> Optional[Dict[str, str]]:
 
 def update_hosts_ini(new_entries: Dict[str, Dict[str, str]]):
     config = configparser.ConfigParser(allow_no_value=True)
-
-    # Cargar existente (si existe)
+    
+    # 1. Cargar existente (si existe)
     if HOSTS_INI.is_file():
         config.read(HOSTS_INI)
-
-    # Preservar [Local] si existe
-    if "Local" in config:
-        local_data = dict(config["Local"])
+        print(f"Leyendo hosts.ini existente ({len(config.sections())} secciones)")
     else:
-        local_data = {"hostname": "local", "passphrase": "test"}
+        print("hosts.ini no existe → creando nuevo")
 
-    # Limpiar secciones antiguas (excepto Local)
-    for section in list(config.sections()):
-        if section != "Local":
-            config.remove_section(section)
+    # 2. NO borrar nada automáticamente
+    #    Solo actualizamos o añadimos
+    actualizados = 0
+    nuevos = 0
 
-    # Restaurar Local
-    config["Local"] = local_data
-
-    # Añadir/actualizar las nuevas
     for ip, data in new_entries.items():
-        section_name = data["hostname"] if data["hostname"] else f"Host_{ip.replace('.', '_')}"
-        config[section_name] = {
-            "hostname": data["hostname"],
-            "passphrase": data["passphrase"],
-            "address": data["address"],
-            "ip": ip,  # comentario con la IP real (útil para depuración)
-        }
+        hostname = data["hostname"].strip() if data["hostname"] else f"Host_{ip.replace('.', '_')}"
+        section_name = hostname
 
-    # Guardar
-    with open(HOSTS_INI, "w", encoding="utf-8") as f:
-        config.write(f)
+        # Si ya existe la sección → actualizamos campos
+        if section_name in config:
+            actualizados += 1
+            print(f"  Actualizando {section_name} ({ip})")
+        else:
+            nuevos += 1
+            config.add_section(section_name)
+            print(f"  Añadiendo nuevo: {section_name} ({ip})")
 
-    print(f"\nArchivo hosts.ini actualizado ({HOSTS_INI})")
-    print(f"Se encontraron y añadieron {len(new_entries)} hosts remotos.")
+        config[section_name]["hostname"] = hostname
+        config[section_name]["passphrase"] = data["passphrase"].strip()
+        config[section_name]["address"] = data["address"].strip()
+        config[section_name]["ip"] = ip  # redundante pero útil
+        config[section_name]["last_seen"] = str(time.time())
 
+    # 3. Opcional: limpiar hosts muy antiguos (ej: > 48 horas sin verse)
+    to_remove = []
+    current_time = time.time()
+    for section in config.sections():
+        if section == "Local":
+            continue
+        if "last_seen" in config[section]:
+            last = float(config[section]["last_seen"])
+            if current_time - last > 172800:  # 48 horas = 172800 segundos
+                to_remove.append(section)
+
+    for section in to_remove:
+        config.remove_section(section)
+        print(f"  Eliminado host antiguo: {section}")
+
+    # 4. Guardar solo si hubo cambios
+    if nuevos > 0 or actualizados > 0 or to_remove:
+        with open(HOSTS_INI, "w", encoding="utf-8") as f:
+            config.write(f)
+        print(f"\nhosts.ini actualizado correctamente:")
+        print(f"  Nuevos: {nuevos}")
+        print(f"  Actualizados: {actualizados}")
+        print(f"  Eliminados antiguos: {len(to_remove)}")
+        print(f"  Total hosts remotos: {len(config.sections()) - (1 if 'Local' in config else 0)}")
+    else:
+        print("\nNo hubo cambios en hosts.ini")
 
 # ────────────────────────────────────────────────
 #  Función principal para ejecutar todo
