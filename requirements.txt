@@ -1,0 +1,5 @@
+click
+psutil
+fastapi[standard]
+psutil
+requests

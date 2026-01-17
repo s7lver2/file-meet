@@ -334,9 +334,9 @@ def setup():
     if not config.has_section("meet"):
         config.add_section("meet")
     config["meet"]["hostname"] = hostname
-    config["security"]["salt"] = salt.hex()
-    config["security"]["hash"] = derived_hash.hex()
-    config["security"]["iterations"] = "600000"
+    config["meet"]["salt"] = salt.hex()
+    config["meet"]["hash"] = derived_hash.hex()
+    config["meet"]["iterations"] = "600000"
 
     if not config.has_section("security"):
         config.add_section("security")
