@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import psutil
+import requests
 import os
 import asyncio
 import random
@@ -130,63 +131,93 @@ def scan():
 @click.argument('archivo', type=click.Path(exists=True, file_okay=True, dir_okay=False))
 @click.argument('destino', type=str)
 def send(archivo, destino):
-    """Envía un archivo comprimido con contraseña al destino especificado"""
+    """Envía un archivo al destino con compresión protegida"""
     config = load_hosts_ini()
     
     if destino not in config:
         click.echo(f"✗ Destino '{destino}' no encontrado en hosts.ini")
-        sys.exit(1)
+        return
     
-    passphrase = config[destino].get('passphrase')
+    passphrase = config[destino].get('passphrase', '').strip()
     if not passphrase:
         click.echo(f"✗ No se encontró passphrase para '{destino}'")
-        sys.exit(1)
+        return
     
-    # Generar código aleatorio de 6 dígitos
+    # IP o hostname del destino (de preferencia IP para conexión directa)
+    target_host = config[destino].get('address') or config[destino].get('hostname')
+    if not target_host:
+        click.echo("✗ No se encontró 'address' o 'hostname' en la sección del destino")
+        return
+    
+    # Generar código
     code = f"{random.randint(0, 999999):06d}"
     password = passphrase + code
+    click.echo("\n" + "="*60)
+    click.echo(f"   ¡CÓDIGO SECRETO (6 dígitos) PARA EL RECEPTOR: {code}")
+    click.echo("="*60 + "\n")
+    click.echo("Guárdalo y compártelo SOLO con el receptor por otro canal seguro.")
     
-    click.echo(f"Código de verificación (solo para ti): {code}")
-    click.echo("Guárdalo seguro - se usará para descomprimir en el destino.")
-    
-    # Comprimir el archivo
+    # Comprimir
     archivo_path = Path(archivo)
-    zip_name = f"{archivo_path.stem}_enviado.zip"
+    zip_name = f"{archivo_path.stem}_protected.zip"
     zip_path = PROJECT_ROOT / zip_name
     
-    try:
-        with ZipFile(zip_path, 'w', ZIP_DEFLATED) as zf:
-            zf.setpassword(password.encode('utf-8'))
-            zf.write(archivo, arcname=archivo_path.name)
-        click.echo(f"✓ Archivo comprimido como {zip_name}")
-    except Exception as e:
-        click.echo(f"✗ Error al comprimir: {e}")
-        sys.exit(1)
+    with ZipFile(zip_path, 'w', compression=ZIP_DEFLATED) as zf:
+        zf.setpassword(password.encode('utf-8'))
+        zf.write(archivo_path, arcname=archivo_path.name)
     
-    # Levantar servidor básico HTTP en puerto disponible (ej. 8080)
-    serve_port = 8080
+    click.echo(f"✓ Archivo comprimido: {zip_path}")
+    
+    # Levantar servidor temporal (8080) para que el receptor lo descargue
     local_ip = get_local_ip()
-    serve_dir = str(PROJECT_ROOT)
+    serve_port = 8080
+    download_url = f"http://{local_ip}:{serve_port}/{zip_name}"
     
-    class Handler(http.server.SimpleHTTPRequestHandler):
+    class FileHandler(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=serve_dir, **kwargs)
+            super().__init__(*args, directory=str(PROJECT_ROOT), **kwargs)
+    
+    server_ready = threading.Event()
+    
+    def start_server():
+        with socketserver.TCPServer(("", serve_port), FileHandler) as httpd:
+            server_ready.set()
+            httpd.serve_forever()
+    
+    server_thread = threading.Thread(target=start_server, daemon=True)
+    server_thread.start()
+    server_ready.wait(timeout=2)  # Esperamos que arranque
+    
+    click.echo(f"Servidor temporal activo en {download_url}")
+    
+    # Enviar petición al destino
+    target_url = f"http://{target_host}:8000/files/get"
+    payload = {
+        "download_url": download_url,
+        "filename": zip_name,
+        "code_hint": "El código de 6 dígitos fue compartido por el emisor"
+    }
     
     try:
-        with socketserver.TCPServer(("", serve_port), Handler) as httpd:
-            server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-            server_thread.start()
-            click.echo(f"✓ Servidor básico iniciado en http://{local_ip}:{serve_port}/{zip_name}")
-            click.echo("Presiona Ctrl+C para detener el servidor cuando termines.")
-            
-            # Mantener vivo hasta Ctrl+C (para el resto de la lógica más adelante)
-            while True:
-                time.sleep(1)
-    except KeyboardInterrupt:
-        click.echo("\nServidor detenido por usuario.")
+        r = requests.post(target_url, json=payload, timeout=10)
+        r.raise_for_status()
+        click.echo(f"✓ Petición enviada al destino → {target_host} la recibió correctamente")
+        click.echo("El receptor descargará el archivo automáticamente.")
     except Exception as e:
-        click.echo(f"✗ Error al iniciar servidor: {e}")
-    finally:
-        # Limpieza: borrar zip temporal si quieres
-        zip_path.unlink()
+        click.echo(f"✗ Error al notificar al destino: {e}")
+        click.echo("   El receptor no recibirá la notificación automática.")
+    
+    # Mantener el servidor vivo un tiempo razonable (ej: 10 minutos) o hasta Ctrl+C
+    click.echo("\nServidor activo. Esperando descarga... (Ctrl+C para detener)")
+    try:
+        time.sleep(600)  # 10 minutos
+    except KeyboardInterrupt:
         pass
+    finally:
+        click.echo("Deteniendo servidor temporal y limpiando...")
+        # Borramos el zip del emisor
+        try:
+            zip_path.unlink()
+            click.echo("Archivo zip local eliminado.")
+        except:
+            pass
