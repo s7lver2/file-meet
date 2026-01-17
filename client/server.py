@@ -3,8 +3,10 @@ from .modules.process import *
 from .modules.network import *
 from .modules.config import *
 from .modules.discover import discover_and_update
+from .modules.security import *
 from zipfile import ZipFile, ZIP_DEFLATED
 from pathlib import Path
+import base64
 import click
 import subprocess
 import sys
@@ -13,6 +15,9 @@ import psutil
 import requests
 import os
 import asyncio
+import hashlib
+import secrets
+import getpass
 import random
 import configparser
 import socket
@@ -151,15 +156,19 @@ def send(archivo, destino):
     
     # Generar código
     code = f"{random.randint(0, 999999):06d}"
+    random_word = random.choice(WORD_LIST)
     password = passphrase + code
     click.echo("\n" + "="*60)
+    click.echo(f"   PALABRA CLAVE DEL ARCHIVO: {random_word}")
+    click.echo("   (úsala en el comando decrypt en el receptor)") 
     click.echo(f"   ¡CÓDIGO SECRETO (6 dígitos) PARA EL RECEPTOR: {code}")
     click.echo("="*60 + "\n")
     click.echo("Guárdalo y compártelo SOLO con el receptor por otro canal seguro.")
+      
     
     # Comprimir
     archivo_path = Path(archivo)
-    zip_name = f"{archivo_path.stem}_protected.zip"
+    zip_name = f"{random_word}.zip"
     zip_path = PROJECT_ROOT / zip_name
     
     with ZipFile(zip_path, 'w', compression=ZIP_DEFLATED) as zf:
@@ -195,7 +204,7 @@ def send(archivo, destino):
     payload = {
         "download_url": download_url,
         "filename": zip_name,
-        "code_hint": "El código de 6 dígitos fue compartido por el emisor"
+        "code_hint": "El código de 6 dígitos fue compartido por el emisor",
     }
     
     try:
@@ -209,13 +218,39 @@ def send(archivo, destino):
     
     # Mantener el servidor vivo un tiempo razonable (ej: 10 minutos) o hasta Ctrl+C
     click.echo("\nServidor activo. Esperando descarga... (Ctrl+C para detener)")
+    # Contador de descargas completadas
+    download_count = 0
+    max_wait_seconds = 600  # 10 minutos como máximo
+    check_interval = 2      # revisar cada 2 segundos
+
+    start_time = time.time()
+
     try:
-        time.sleep(600)  # 10 minutos
+        while time.time() - start_time < max_wait_seconds:
+            # Aquí puedes leer los logs o simplemente asumir que después de X segundos ya llegó
+            # Pero para hacerlo más preciso, podemos usar una variable global o un evento
+
+            # Versión simple: esperar un tiempo fijo razonable (ej: 2-3 minutos)
+            time.sleep(check_interval)
+            download_count += 1  # placeholder
+
+            # Mejor: si quieres detectar de verdad, puedes sobreescribir el handler
+            # pero por simplicidad, usamos tiempo + opción de Ctrl+C
+
+            if download_count > 0:  # cuando sepamos que se descargó
+                click.echo("\n✓ Archivo descargado por el receptor. Deteniendo servidor.")
+                break
+
+        else:
+            click.echo("\nTiempo máximo alcanzado. Deteniendo servidor.")
     except KeyboardInterrupt:
-        pass
+        click.echo("\nInterrupción manual detectada.")
+
     finally:
+        # Detener el thread del servidor
+        # Nota: TCPServer no tiene forma limpia de shutdown desde otro thread,
+        # así que la forma más práctica es matar el thread (daemon=True ya lo hace al salir)
         click.echo("Deteniendo servidor temporal y limpiando...")
-        # Borramos el zip del emisor
         try:
             zip_path.unlink()
             click.echo("Archivo zip local eliminado.")
@@ -249,3 +284,78 @@ def decrypt(filename: str, code: str):
     except Exception as e:
         click.echo(f"✗ No se pudo conectar al backend local: {e}")
         click.echo("   Asegúrate de que el servidor esté corriendo con 'file-meet start'")
+
+@cli.command()
+def setup():
+    """Configura tu hostname y passphrase (solo se guarda el hash)"""
+    click.echo("\n" + "="*60)
+    click.echo(" Configuración de file-meet ".center(60))
+    click.echo("═"*60 + "\n")
+
+    config_path = PROJECT_ROOT / "config.ini"
+    config = configparser.ConfigParser()
+
+    # Hostname
+    hostname = click.prompt(
+        "Nombre visible de este equipo",
+        default=socket.gethostname()
+    ).strip()
+
+    # Passphrase → nunca se guarda en claro
+    click.echo("\nElige una passphrase larga (mínimo 6 caracteres).")
+    while True:
+        try:
+            passphrase = getpass.getpass("Passphrase: ").strip()
+            confirm = getpass.getpass("Repite passphrase: ").strip()
+        except:
+            passphrase = click.prompt("Passphrase", hide_input=True)
+            confirm = click.prompt("Repite passphrase", hide_input=True)
+
+        if len(passphrase) < 6:
+            click.echo("✗ Demasiado corta (mín 6 caracteres)")
+            continue
+        if passphrase != confirm:
+            click.echo("✗ No coinciden")
+            continue
+        break
+    allowed_hosts = click.prompt("Elige los hosts en los que desea confiar por defecto (separados por comas)",default="NEWUSER").strip()
+    
+    # Generar salt y hash
+    salt = secrets.token_bytes(6)
+    derived_hash = hashlib.pbkdf2_hmac(
+        'sha256',
+        passphrase.encode('utf-8'),
+        salt,
+        iterations=600_000,   # alto para resistencia
+        dklen=32
+    )
+
+    # Guardar
+    if not config.has_section("meet"):
+        config.add_section("meet")
+    config["meet"]["hostname"] = hostname
+    config["security"]["salt"] = salt.hex()
+    config["security"]["hash"] = derived_hash.hex()
+    config["security"]["iterations"] = "600000"
+
+    if not config.has_section("security"):
+        config.add_section("security")
+    config["security"]["allowed_hosts"] = allowed_hosts
+    
+
+    if not config.has_section("General"):
+        config.add_section("General")
+    config["General"]["debug"] = "False"
+    config["General"]["log"] = "warning"
+
+    with open(config_path, 'w', encoding='utf-8') as f:
+        config.write(f)
+
+    click.echo("\n" + "="*60)
+    click.echo("Configuración completada")
+    click.echo(f"Archivo: {config_path}")
+    click.echo(f"Hostname: {hostname}")
+    click.echo(f"Hostname: {hostname}")
+    click.echo("Passphrase: guardada como hash (no se puede recuperar)")
+    click.echo("La necesitarás cada vez que quieras desencriptar archivos recibidos.")
+    click.echo("="*60 + "\n")

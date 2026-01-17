@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import requests
 import shutil
+import json
 import time
 
 config = load_config(f"{os.path.dirname(os.path.abspath(__file__))}/../config.ini")
@@ -44,6 +45,7 @@ async def receive_file(payload: dict):
     
     download_url = payload.get("download_url")
     filename = payload.get("filename")
+    passphrase_enc = payload.get("passphrase_enc")
     
     if not download_url or not filename:
         print("ERROR: Faltan parámetros")
