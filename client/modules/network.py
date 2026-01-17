@@ -3,6 +3,16 @@ import threading
 from queue import Queue
 from ipaddress import ip_network
 
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
 
 def probe(ip: str, port: int = 42532, timeout: float = 0.9):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -22,7 +32,7 @@ def worker(queue: Queue, results: list, port: int):
         queue.task_done()
 
 
-def scan(network: str = "192.168.1.0/24", port: int = 42532, threads: int = 80):
+def scan_network(network: str = "192.168.0.0/24", port: int = 42532, threads: int = 80):
     net = ip_network(network, strict=False)
     ips = [str(ip) for ip in net.hosts()]
     
