@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from modules.config import load_config
-from modules.network import get_ip
+from .modules.config import load_config
+from .modules.network import get_ip
 from pathlib import Path
 import os
 

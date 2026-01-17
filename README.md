@@ -1,0 +1,1 @@
+click psutil fastapi[standard]
