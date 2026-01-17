@@ -38,22 +38,32 @@ def read_root():
 
 @app.post("/files/get")
 async def receive_file(payload: dict):
+    print("\n" + "="*60)
+    print("¡POST /files/get recibido!")
+    print("Payload recibido:", payload)
+    
     download_url = payload.get("download_url")
     filename = payload.get("filename")
     
     if not download_url or not filename:
+        print("ERROR: Faltan parámetros")
         raise HTTPException(400, "Faltan parámetros: download_url o filename")
     
-    # Descargar el archivo
+    print(f"Intentando descargar desde: {download_url}")
+    print(f"Guardando como: {filename}")
+    
     try:
         r = requests.get(download_url, timeout=30, stream=True)
+        print(f"Status de descarga: {r.status_code}")
         r.raise_for_status()
         
         zip_path = TEMP_DIR / filename
+        print(f"Guardando en: {zip_path}")
+        
         with open(zip_path, "wb") as f:
             shutil.copyfileobj(r.raw, f)
         
-        # Opcional: guardar timestamp para expiración
+        print(f"¡Descarga COMPLETADA! Tamaño: {zip_path.stat().st_size} bytes")
         zip_path.with_suffix(".info").write_text(str(time.time()))
         
         return JSONResponse({
@@ -61,14 +71,8 @@ async def receive_file(payload: dict):
             "message": f"Archivo recibido y guardado como {filename}",
             "path": str(zip_path)
         })
-
-        print("\n" + "="*70)
-        print(f"¡NUEVO ARCHIVO RECIBIDO! → {filename}")
-        print(f"Guardado en: {zip_path}")
-        print(f"Para desencriptar → ejecuta: file-meet decrypt {filename} CODIGO_DE_6_DIGITOS")
-        print(f"O accede a: http://localhost:42532/files/decrypt/{filename}?code=XXXXXX")
-        print("="*70 + "\n")
     except Exception as e:
+        print(f"ERROR en descarga: {str(e)}")
         raise HTTPException(500, f"Error al descargar archivo: {str(e)}")
 
 # Endpoint para que el usuario desencripte (puedes hacer un CLI o endpoint simple)
