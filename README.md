@@ -1,3 +1,6 @@
+REBUILDING PROJECT
+
+
 make venv          # crea .venv
 make install       # instala dependencias
 make dev           # instala + pre-commit (si lo usas)
