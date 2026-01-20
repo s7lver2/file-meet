@@ -2,6 +2,7 @@ package start
 
 import (
 	"fmt"
+	"runtime"
 	"os"
 	"os/exec"
 	"strconv"
@@ -40,10 +41,19 @@ func Start(reload bool) {
 	serverCmd := exec.Command("python", cmdArgs...)
 	serverCmd.Dir = filepath.Join(projectRoot, "backend")
 
-	serverCmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow:    true,
-		CreationFlags: 0x08000000,  // 0x08000000 - No crea consola visible
+	if runtime.GOOS == "windows" {
+    	serverCmd.SysProcAttr = &syscall.SysProcAttr{
+        	HideWindow:    true,
+        	CreationFlags: 0x08000000,
+    	}
+	} else {
+		// Redirigir salida
+		devNull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		serverCmd.Stdout = devNull
+		serverCmd.Stderr = devNull
 	}
+
+	
 
 	// python path injection for fix import bugs
 	env := os.Environ()
