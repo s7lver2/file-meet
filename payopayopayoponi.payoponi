@@ -1,0 +1,80 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+func main() {
+	// 1. Comando Raíz (El nombre de tu programa)
+	var rootCmd = &cobra.Command{
+		Use:   "app",
+		Short: "App es una CLI de ejemplo muy completa",
+		Long:  `Esta es una aplicación de demostración para aprender a usar Cobra en Go.`,
+	}
+
+	// Variables para capturar los valores de los flags
+	var nombre string
+	var edad int
+	var repetitivo bool
+	var formato string
+
+	// 2. Comando: "saludar"
+	// Uso: app saludar [nombre_posicional] --repetir
+	var greetCmd = &cobra.Command{
+		Use:   "saludar [nombre]",
+		Short: "Saluda al usuario",
+		Args:  cobra.MinimumNArgs(1), // Obliga a pasar al menos 1 argumento
+		Run: func(cmd *cobra.Command, args []string) {
+			saludo := "Hola " + args[0]
+			if repetitivo {
+				saludo = strings.Repeat(saludo+" ", 3)
+			}
+			fmt.Println(saludo)
+		},
+	}
+
+	// 3. Comando: "config" (con subcomandos)
+	var configCmd = &cobra.Command{
+		Use:   "config",
+		Short: "Gestiona la configuración",
+	}
+
+	// Subcomando de config: "ver"
+	var viewConfigCmd = &cobra.Command{
+		Use:   "ver",
+		Short: "Muestra la configuración actual",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("Configuración actual: Nombre=%s, Edad=%d, Formato=%s\n", nombre, edad, formato)
+		},
+	}
+
+	// --- CONFIGURACIÓN DE FLAGS ---
+
+	// Flag Persistente: Disponible en el comando raíz y en TODOS los subcomandos
+	rootCmd.PersistentFlags().StringVarP(&formato, "formato", "f", "texto", "Formato de salida (json|texto)")
+
+	// Flags Locales: Solo disponibles en el comando específico
+	greetCmd.Flags().BoolVarP(&repetitivo, "repetir", "r", false, "Repite el saludo tres veces")
+
+	// Flags para el comando raíz (pueden ser usados para configurar valores globales)
+	rootCmd.Flags().StringVarP(&nombre, "nombre", "n", "Invitado", "Tu nombre")
+	rootCmd.Flags().IntVarP(&edad, "edad", "e", 0, "Tu edad")
+
+	// Marcar un flag como obligatorio
+	rootCmd.MarkFlagRequired("nombre")
+
+	// --- ENSAMBLAJE DE COMANDOS ---
+	configCmd.AddCommand(viewConfigCmd) // Añade "ver" a "config"
+	rootCmd.AddCommand(greetCmd)         // Añade "saludar" a raíz
+	rootCmd.AddCommand(configCmd)        // Añade "config" a raíz
+
+	// Ejecución
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
