@@ -2,28 +2,25 @@ package start
 
 import (
 	"fmt"
-	"runtime"
 	"os"
 	"os/exec"
-	"strconv"
 	"path/filepath"
-	"syscall"
+	"strconv"
 
 	"meet/cmd/lib/process"
 )
 
 const PORT = 42532
 const BACKEND_MODULE = "main:app"
-const PROJECT_ROOT = "C:/Users/NICKE/Desktop/Projects/file-meet"
 
 func Start(reload bool) {
 	currentDir, _ := os.Getwd()
 	projectRoot := filepath.Join(currentDir, "..")
-	pid, _ := process.FindServerProcess(strconv.Itoa(PORT))
 
+	pid, _ := process.FindServerProcess(strconv.Itoa(PORT))
 	if pid != 0 {
-			fmt.Printf("⚠️  El servidor ya está corriendo en el puerto %d\n", PORT)
-			return
+		fmt.Printf("⚠️  El servidor ya está corriendo en el puerto %d\n", PORT)
+		return
 	}
 
 	cmdArgs := []string{
@@ -41,27 +38,18 @@ func Start(reload bool) {
 	serverCmd := exec.Command("python", cmdArgs...)
 	serverCmd.Dir = filepath.Join(projectRoot, "backend")
 
-	if runtime.GOOS == "windows" {
-    	serverCmd.SysProcAttr = &syscall.SysProcAttr{
-        	HideWindow:    true,
-        	CreationFlags: 0x08000000,
-    	}
-	} else {
-		// Redirigir salida
-		devNull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-		serverCmd.Stdout = devNull
-		serverCmd.Stderr = devNull
-	}
+	// Llamada multiplataforma
+	configureBackground(serverCmd)
 
-	
-
-	// python path injection for fix import bugs
+	// PYTHONPATH
 	env := os.Environ()
 	env = append(env, fmt.Sprintf("PYTHONPATH=%s", projectRoot))
 	serverCmd.Env = env
 
-	serverCmd.Stdout = os.Stdout
-	serverCmd.Stderr = os.Stderr
+	// Redirigir salida a /dev/null en TODAS las plataformas (silencio)
+	devNull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	serverCmd.Stdout = devNull
+	serverCmd.Stderr = devNull
 
 	if err := serverCmd.Start(); err != nil {
 		fmt.Printf("❌ Error al ejecutar: %v\n", err)
