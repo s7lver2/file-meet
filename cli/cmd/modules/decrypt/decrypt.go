@@ -13,7 +13,7 @@ import (
 const PORT = 42532
 
 // DecryptClient llama al endpoint del backend para desencriptar el archivo
-func DecryptClient(filename string, code string) error {
+func Decrypt(filename string, code string) error {
 	// Construir la URL con el puerto y parámetros
 	url := fmt.Sprintf("http://localhost:%d/files/decrypt/%s?code=%s", PORT, filename, code)
 

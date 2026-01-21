@@ -83,7 +83,7 @@ var decryptCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		filename := args[0]
 		code := args[1]
-		return decrypt.DecryptClient(filename, code)
+		return decrypt.Decrypt(filename, code)
 	},
 }
 
@@ -98,6 +98,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(sendCmd)
+	rootCmd.AddCommand(decryptCmd)
 }
 
 func Execute() {
