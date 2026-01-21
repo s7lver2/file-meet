@@ -68,7 +68,11 @@ var sendCmd = &cobra.Command{
 		Run: func(cmd *cobra.Command, args []string) {
 				file := args[0]
 				target := args[1]
-				send.Send(file, target)
+				err := send.Send(file, target)
+
+				if err != nil {
+					fmt.Println(err)
+				}
 		},
 }
 
