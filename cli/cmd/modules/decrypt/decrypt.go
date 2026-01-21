@@ -15,7 +15,7 @@ const PORT = 42532
 
 // DecryptClient llama al endpoint del backend para desencriptar el archivo
 func Decrypt(filename string, code string) error {
-	port := DefaultPort
+	port := PORT
 	// Opcional: leer de variable de entorno si existe
 	if p := os.Getenv("MEET_PORT"); p != "" {
 		fmt.Sscanf(p, "%d", &port)

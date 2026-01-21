@@ -29,9 +29,17 @@ func main() {
 	// Cargar configuración (equivalente a tu config.ini)
 	config = viper.New()
 	config.SetConfigName("config")
-	config.SetConfigType("ini")
+	config.SetConfigType("toml")
 	config.AddConfigPath("../")           // mismo nivel que el binario o ajusta según tu estructura
 	config.AddConfigPath(".")             // fallback
+	config.AddConfigPath(filepath.Join("../config"))
+
+	config.SetDefault("meet.hostname", "localhost")
+    config.SetDefault("meet.passphrase", "")
+    config.SetDefault("meet.allowed_hosts", []string{"127.0.0.1", "localhost"})
+    config.SetDefault("server.port", 42532)
+    config.SetDefault("server.temp_dir", "temp_downloads")
+
 	if err := config.ReadInConfig(); err != nil {
 		log.Printf("No se pudo leer config.ini → usando valores por defecto: %v", err)
 	}
