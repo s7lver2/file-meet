@@ -22,6 +22,7 @@ import (
 
 const (
 	PORT = 42532
+	SERVE_PORT = 42531
 )
 
 var WORD_LIST = []string{
@@ -29,153 +30,181 @@ var WORD_LIST = []string{
 }
 
 func Send(archivo string, destino string) error {
-	config, err := loadHostsIni()
-	if err != nil {
-		return fmt.Errorf("error cargando hosts.ini: %v", err)
-	}
+    config, err := loadHostsIni()
+    if err != nil {
+        return fmt.Errorf("error cargando hosts.ini: %w", err)
+    }
+    section := config.Section(destino)
+    if section == nil {
+        return fmt.Errorf("no se encontró la sección [%s] en hosts.ini", destino)
+    }
+    passphrase := strings.TrimSpace(section.Key("passphrase").String())
+    if passphrase == "" {
+        return fmt.Errorf("no se encontró passphrase para '%s' en hosts.ini", destino)
+    }
+    targetHost := strings.TrimSpace(section.Key("address").String())
+    if targetHost == "" {
+        targetHost = strings.TrimSpace(section.Key("hostname").String())
+    }
+    if targetHost == "" {
+        return fmt.Errorf("no se encontró 'address' ni 'hostname' para '%s'", destino)
+    }
 
-	section := config.Section(destino)
-	passphrase := strings.TrimSpace(section.Key("passphrase").String())
-	if passphrase == "" {
-		return fmt.Errorf("no se encontró passphrase para '%s'", destino)
-	}
+    // Generar código aleatorio de 6 dígitos
+    rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+    code := fmt.Sprintf("%06d", rng.Intn(1000000))
+    randomWord := WORD_LIST[rng.Intn(len(WORD_LIST))]
+    password := passphrase + code
 
-	targetHost := strings.TrimSpace(section.Key("address").String())
-	if targetHost == "" {
-		targetHost = strings.TrimSpace(section.Key("hostname").String())
-	}
-	if targetHost == "" {
-		return fmt.Errorf("no se encontró 'address' o 'hostname' para '%s'", destino)
-	}
+    fmt.Println(strings.Repeat("=", 60))
+    fmt.Printf("  PALABRA CLAVE DEL ARCHIVO: %s\n", randomWord)
+    fmt.Println("  (úsala en el comando decrypt en el receptor para identificarlo)")
+    fmt.Printf("  CÓDIGO SECRETO (6 dígitos) PARA EL RECEPTOR: %s\n", code)
+    fmt.Println(strings.Repeat("=", 60) + "\n")
 
-	// Initialize random seed (important for older Go versions, good practice)
-	rand.Seed(time.Now().UnixNano())
+    // ────────────────────────────────────────────────
+    // Preparar archivo ZIP cifrado
+    // ────────────────────────────────────────────────
+    archivoPath := filepath.Clean(archivo)
+    if _, err := os.Stat(archivoPath); os.IsNotExist(err) {
+        return fmt.Errorf("el archivo no existe: %s", archivoPath)
+    }
 
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
-	randomWord := WORD_LIST[rand.Intn(len(WORD_LIST))]
-	password := passphrase + code
+    tmpDir, err := os.MkdirTemp("", "meet-send-*")
+    if err != nil {
+        return fmt.Errorf("error creando directorio temporal: %w", err)
+    }
+    defer os.RemoveAll(tmpDir)
 
-	fmt.Println(strings.Repeat("=", 60))
-	fmt.Printf("   PALABRA CLAVE DEL ARCHIVO: %s\n", randomWord)
-	fmt.Printf("   (úsala en el comando decrypt en el receptor)\n")
-	fmt.Printf("   ¡CÓDIGO SECRETO (6 dígitos) PARA EL RECEPTOR: %s\n", code)
-	fmt.Println(strings.Repeat("=", 60) + "\n")
+    zipName := randomWord + ".zip"
+    zipPath := filepath.Join(tmpDir, zipName)
 
-	archivoPath := filepath.Clean(archivo)
-	zipName := randomWord + ".zip"
+    zipFile, err := os.Create(zipPath)
+    if err != nil {
+        return fmt.Errorf("error creando el ZIP: %w", err)
+    }
 
-	tmpDir, err := os.MkdirTemp("", "file-meet-send-*")
-	if err != nil {
-		return fmt.Errorf("error creando dir temporal: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+    zw := zip.NewWriter(zipFile)
 
-	zipPath := filepath.Join(tmpDir, zipName)
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return fmt.Errorf("❌ Error creando el archivo ZIP: %v", err)
-	}
+    encryptedWriter, err := zw.Encrypt(filepath.Base(archivoPath), password)
+    if err != nil {
+        zw.Close()
+        zipFile.Close()
+        return fmt.Errorf("error configurando cifrado AES: %w", err)
+    }
 
-	zw := zip.NewWriter(zipFile)
+    src, err := os.Open(archivoPath)
+    if err != nil {
+        zw.Close()
+        zipFile.Close()
+        return fmt.Errorf("error abriendo archivo original: %w", err)
+    }
+    defer src.Close()
 
-	// FIX: Use zw.Encrypt instead of CreateHeader + SetPassword
-	w, err := zw.Encrypt(filepath.Base(archivoPath), password)
-	if err != nil {
-		zipFile.Close()
-		return fmt.Errorf("error configurando cifrado: %v", err)
-	}
+    _, err = io.Copy(encryptedWriter, src)
+    if err != nil {
+        zw.Close()
+        zipFile.Close()
+        return fmt.Errorf("error copiando contenido al ZIP cifrado: %w", err)
+    }
 
-	src, err := os.Open(archivoPath)
-	if err != nil {
-		zipFile.Close()
-		return fmt.Errorf("❌ Error abriendo el archivo original: %v", err)
-	}
-	
-	_, err = io.Copy(w, src)
-	src.Close() // Close source as soon as possible
-	if err != nil {
-		zipFile.Close()
-		return fmt.Errorf("❌ Error copiando contenido al ZIP: %v", err)
-	}
+    if err := zw.Close(); err != nil {
+        zipFile.Close()
+        return fmt.Errorf("error cerrando ZIP writer: %w", err)
+    }
+    if err := zipFile.Close(); err != nil {
+        return fmt.Errorf("error cerrando archivo ZIP: %w", err)
+    }
 
-	// CRITICAL: Close writers so the file is flushed to disk before serving
-	zw.Close()
-	zipFile.Close()
+    fmt.Printf("✓ Archivo comprimido y cifrado: %s\n", zipPath)
 
-	fmt.Printf("✓ Archivo comprimido y cifrado: %s\n", zipPath)
+    // ────────────────────────────────────────────────
+    // El resto del código (servidor temporal, POST, espera) queda igual
+    // ────────────────────────────────────────────────
 
-	localIP := getLocalIP()
-	servePort := 8080
-	downloadURL := fmt.Sprintf("http://%s:%d/%s", localIP, servePort, zipName)
+    localIP := getLocalIP()
+    downloadURL := fmt.Sprintf("http://%s:%d/%s", localIP, SERVE_PORT, zipName)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/"+zipName, func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, zipPath)
-		fmt.Printf("\n[!] Archivo %s solicitado por %s\n", zipName, r.RemoteAddr)
-	})
+    mux := http.NewServeMux()
+    mux.HandleFunc("/"+zipName, func(w http.ResponseWriter, r *http.Request) {
+        http.ServeFile(w, r, zipPath)
+        fmt.Printf("[!] Archivo %s solicitado desde %s\n", zipName, r.RemoteAddr)
+    })
 
-	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", servePort),
-		Handler: mux,
-	}
+    srv := &http.Server{
+        Addr:    fmt.Sprintf(":%d", SERVE_PORT),
+        Handler: mux,
+    }
 
-	go func() {
-		fmt.Printf("Servidor temporal activo en %s\n", downloadURL)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("Error en servidor temporal: %v\n", err)
-		}
-	}()
+    go func() {
+        fmt.Printf("Servidor temporal escuchando en: %s\n", downloadURL)
+        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            fmt.Printf("Error en servidor temporal: %v\n", err)
+        }
+    }()
 
-	// Small sleep to ensure server is listening
-	time.Sleep(500 * time.Millisecond)
+    time.Sleep(400 * time.Millisecond)
 
-	// Enviar POST al destino
-	targetURL := fmt.Sprintf("http://%s:%d/files/get", targetHost, PORT)
-	payload := map[string]string{
-		"download_url": downloadURL,
-		"filename":     zipName,
-		"code_hint":    "El código de 6 dígitos fue compartido por el emisor",
-	}
+    targetURL := fmt.Sprintf("http://%s:%d/files/get", targetHost, PORT)
+    payload := map[string]string{
+        "download_url": downloadURL,
+        "filename":     zipName,
+    }
+    jsonData, _ := json.Marshal(payload)
 
-	jsonPayload, _ := json.Marshal(payload)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(targetURL, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		fmt.Printf("⚠️  No se pudo notificar al receptor: %v\n", err)
-	} else {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			fmt.Printf("✓ Notificación enviada exitosamente a %s\n", targetHost)
-		} else {
-			fmt.Printf("✗ El receptor respondió con error (Status: %d)\n", resp.StatusCode)
-		}
-	}
+    client := &http.Client{Timeout: 12 * time.Second}
+    resp, err := client.Post(targetURL, "application/json", bytes.NewBuffer(jsonData))
+    if err != nil {
+        fmt.Printf("⚠️  No se pudo contactar al receptor (%s): %v\n", targetHost, err)
+    } else {
+        defer resp.Body.Close()
+        body, _ := io.ReadAll(resp.Body)
+        if resp.StatusCode == http.StatusOK {
+            fmt.Printf("✓ Receptor %s notificado correctamente\n", targetHost)
+        } else {
+            fmt.Printf("✗ Receptor respondió con error %d: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
+        }
+    }
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Println("\nEsperando descarga... (El servidor se cerrará en 10 min o con Ctrl+C)")
+    fmt.Println("\nEsperando a que el receptor descargue el archivo...")
+    fmt.Println("  (se cerrará automáticamente en 10 minutos o con Ctrl+C)")
 
-	select {
-	case <-sigChan:
-		fmt.Println("\nDeteniendo manualmente...")
-	case <-time.After(10 * time.Minute):
-		fmt.Println("\nTiempo de espera agotado.")
-	}
+    select {
+    case <-sigChan:
+        fmt.Println("\nDetenido por el usuario")
+    case <-time.After(10 * time.Minute):
+        fmt.Println("\nTiempo máximo alcanzado (10 min)")
+    }
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+    shutdownCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+    defer cancel()
+    if err := srv.Shutdown(shutdownCtx); err != nil {
+        fmt.Printf("Error durante shutdown del servidor temporal: %v\n", err)
+    }
+
+    return nil
 }
 
 func loadHostsIni() (*ini.File, error) {
 	wd, _ := os.Getwd()
-	// Try current dir first, then parent
-	path := filepath.Join(wd, "hosts.ini")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		path = filepath.Join(wd, "..", "hosts.ini")
+
+	// Intentamos en diferentes ubicaciones comunes
+	locations := []string{
+		filepath.Join(wd, "hosts.ini"),
+		filepath.Join(wd, "..", "hosts.ini"),
+		filepath.Join(wd, "../config", "hosts.ini"),
 	}
-	return ini.Load(path)
+
+	for _, path := range locations {
+		if _, err := os.Stat(path); err == nil {
+			return ini.Load(path)
+		}
+	}
+
+	return nil, fmt.Errorf("no se encontró hosts.ini en las ubicaciones habituales")
 }
 
 func getLocalIP() string {
@@ -184,6 +213,7 @@ func getLocalIP() string {
 		return "127.0.0.1"
 	}
 	defer conn.Close()
+
 	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String()
 }
