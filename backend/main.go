@@ -48,7 +48,7 @@ func main() {
 	allowedSelfHosts = network.LoadAllowedHosts(config) 
 
 	// Obtener IP (puedes mejorar esta lógica)
-	prIP = network.GetOutboundIP()
+	prIP = network.GetPrivateIP()
 
 	r := gin.Default()
 	r.SetTrustedProxies(nil) // ← importante en producción

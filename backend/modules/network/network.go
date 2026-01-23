@@ -4,8 +4,7 @@ import (
 	_ "fmt"
 	"strings"
 	"log"
-	"io"
-	"net/http"
+    "net"
 
 	"github.com/spf13/viper"
 )
@@ -37,15 +36,56 @@ func LoadAllowedHosts(cfg *viper.Viper) []string {
     return hosts
 }
 
-func GetOutboundIP() string {
-	conn, err := http.Get("https://api.ipify.org")
-	if err != nil || conn == nil {
-		return "127.0.0.1"
-	}
-	defer conn.Body.Close()
+func GetPrivateIP() string {
+    interfaces, err := net.Interfaces()
+    if err != nil {
+        return "127.0.0.1"
+    }
 
-	ip, _ := io.ReadAll(conn.Body)
-	return strings.TrimSpace(string(ip))
+    for _, iface := range interfaces {
+        // ignoramos interfaces down o loopback
+        if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+            continue
+        }
+
+        addrs, err := iface.Addrs()
+        if err != nil {
+            continue
+        }
+
+        for _, addr := range addrs {
+            var ip net.IP
+            switch v := addr.(type) {
+            case *net.IPNet:
+                ip = v.IP
+            case *net.IPAddr:
+                ip = v.IP
+            }
+
+            if ip == nil || ip.IsLoopback() {
+                continue
+            }
+
+            // Solo IPv4 privadas
+            if ip4 := ip.To4(); ip4 != nil {
+                if isPrivateIPv4(ip4) {
+                    return ip4.String()
+                }
+            }
+        }
+    }
+
+    // fallback
+    return "127.0.0.1"
+}
+
+func isPrivateIPv4(ip net.IP) bool {
+    // Rangos privados RFC 1918 + CGNAT + link-local
+    return ip[0] == 10 ||
+        (ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31) ||
+        (ip[0] == 192 && ip[1] == 168) ||
+        (ip[0] == 100 && ip[1] >= 64 && ip[1] <= 127) || // 100.64.0.0/10 CGNAT
+        (ip[0] == 169 && ip[1] == 254)                    // 169.254.0.0/16 link-local
 }
 
 func contains(slice []string, item string) bool {

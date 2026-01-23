@@ -22,7 +22,7 @@ import (
 
 const (
 	PORT = 42532
-	SERVE_PORT = 42532
+	SERVE_PORT = 42531
 )
 
 var WORD_LIST = []string{
