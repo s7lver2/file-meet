@@ -32,6 +32,7 @@ func main() {
 	config.SetConfigType("toml")
 	config.AddConfigPath("../")           // mismo nivel que el binario o ajusta según tu estructura
 	config.AddConfigPath(".")             // fallback
+	config.AddConfigPath(filepath.Join("../config/meet/config"))
 	config.AddConfigPath(filepath.Join("../config"))
 
 	config.SetDefault("meet.hostname", "localhost")
