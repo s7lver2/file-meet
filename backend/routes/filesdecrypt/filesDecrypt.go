@@ -10,10 +10,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"meet-backend/modules/compression"
 )
 
-func DecryptFile(c *gin.Context, tempDir string) {
+func DecryptFile(c *gin.Context, tempDir string, cfg *viper.Viper) {
 	filename := c.Param("filename")
 	code := c.Query("code")
 
@@ -29,7 +30,7 @@ func DecryptFile(c *gin.Context, tempDir string) {
 	}
 
 	// ──── passphrase del RECEPTOR (este servidor) ────
-	localPassphrase := c.GetString("meet.passphrase")
+	localPassphrase := cfg.GetString("meet.passphrase")
 	if localPassphrase == "" {
 		log.Println("ERROR: No hay passphrase definida en config.ini → [meet] passphrase")
 		c.JSON(http.StatusInternalServerError, gin.H{

@@ -71,7 +71,7 @@ func main() {
     })
 
     r.GET("/files/decrypt/:filename", func(c *gin.Context) {
-        filesDecrypt.DecryptFile(c, tempDir)
+        filesDecrypt.DecryptFile(c, tempDir, config)
     })
 
 	port := ":42532" // puedes leerlo de config si quieres
