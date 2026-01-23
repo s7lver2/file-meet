@@ -12,29 +12,26 @@ import (
 
 func LoadAllowedHosts(cfg *viper.Viper) []string {
     if cfg == nil {
-        log.Println("Advertencia: viper config es nil → usando defaults")
         return []string{"127.0.0.1", "::1", "localhost"}
     }
 
-    raw := cfg.GetString("meet.allowed_hosts")
-    if raw == "" {
-        log.Println("Advertencia: meet.allowed_hosts no encontrado → defaults")
-        return []string{"127.0.0.1", "::1", "localhost"}
+    // Intentamos leer como Slice (el formato nativo de TOML para [a, b])
+    hosts := cfg.GetStringSlice("security.allowed_hosts")
+    
+    // Si GetStringSlice falló, intentamos GetString por si acaso es un string simple
+    if len(hosts) == 0 {
+        raw := cfg.GetString("security.allowed_hosts")
+        if raw != "" {
+            parts := strings.Split(raw, ",")
+            for _, p := range parts {
+                hosts = append(hosts, strings.TrimSpace(p))
+            }
+        }
     }
 
-    parts := strings.Split(raw, ",")
-    seen := make(map[string]struct{})
-    var hosts []string
-
-    for _, p := range parts {
-        trimmed := strings.TrimSpace(p)
-        if trimmed == "" {
-            continue
-        }
-        if _, exists := seen[trimmed]; !exists {
-            seen[trimmed] = struct{}{}
-            hosts = append(hosts, trimmed)
-        }
+    if len(hosts) == 0 {
+        log.Println("Advertencia: security.allowed_hosts no encontrado o vacío → defaults")
+        return []string{"127.0.0.1", "::1", "localhost"}
     }
 
     return hosts

@@ -36,7 +36,7 @@ func main() {
 
 	config.SetDefault("meet.hostname", "localhost")
     config.SetDefault("meet.passphrase", "")
-    config.SetDefault("meet.allowed_hosts", []string{"127.0.0.1", "localhost"})
+    config.SetDefault("security.allowed_hosts", []string{"127.0.0.1", "localhost"})
     config.SetDefault("server.port", 42532)
     config.SetDefault("server.temp_dir", "temp_downloads")
 
