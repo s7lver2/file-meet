@@ -21,7 +21,7 @@ const (
 	PORT              = 42532
 	TIMEOUT_CONNECT   = 800 * time.Millisecond
 	TIMEOUT_REQUEST   = 4 * time.Second
-	NETWORK           = "192.168.0.0/24" // cámbialo según tu red
+	NETWORK           = "192.168.20.0/24" // cámbialo según tu red
 	MAX_CONCURRENT    = 100
 	OLD_HOST_THRESHOLD = 48 * time.Hour // 48 horas
 )

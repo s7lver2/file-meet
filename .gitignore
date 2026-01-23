@@ -4,3 +4,4 @@ backend/temp_downloads/
 config.ini
 hsots.ini
 config.toml
+build/
