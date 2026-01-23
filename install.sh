@@ -10,8 +10,7 @@ SERVICE_PATH=/etc/systemd/system/meet.service
 
 if [[ $1 == "--zephyros-source-build" ]]; then
     echo "zephyros souce compilation mode enabled!"
-    echo "[1/6] cleaning cache"
-    sudo rm -r build
+    
 
     echo "[2/6] Updating Repo"
     git pull
@@ -51,6 +50,9 @@ EOF
     echo "[6/6] copying all files to project root"
     cp -r build/backend/meet-backend .
     cp -r build/cli/meet .
+
+    echo "[1/6] cleaning cache"
+    sudo rm -r build
     
 else
     echo "[1/8] cleaning cache"
