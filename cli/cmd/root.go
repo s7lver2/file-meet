@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"github.com/spf13/cobra"
 	"meet/cmd/modules/start"
 	"meet/cmd/modules/stop"
@@ -11,9 +13,13 @@ import (
 	"meet/cmd/modules/scan"
 	"meet/cmd/modules/send"
 	"meet/cmd/modules/decrypt"
+	
 )
 
-var reload bool
+var (
+	reload 			bool
+	config          *viper.Viper
+)
 
 var rootCmd = &cobra.Command{
 		Use: "meet",
@@ -57,7 +63,7 @@ var scanCmd = &cobra.Command{
 		Use: "scan",
 		Short: "do a network scan to detect other users in network using package",
 		Run: func(cmd *cobra.Command, args []string) {
-				scan.Scan()
+				scan.Scan(config)
 		},
 }
 
@@ -88,6 +94,24 @@ var decryptCmd = &cobra.Command{
 }
 
 func init() {
+	/* viper config */
+	config = viper.New()
+	config.SetConfigName("config")
+	config.SetConfigType("toml")
+	config.AddConfigPath(".")
+	config.AddConfigPath(filepath.Join("../config/meet/config"))
+	config.AddConfigPath(filepath.Join("../config"))
+
+	config.SetDefault("scan.range", "192.168.0.0/24")
+	config.SetDefault("scan.timeout_connect", 800)
+	config.SetDefault("scan.timeout_request", 4)
+	config.SetDefault("scan.old_treshold", 48)
+    config.SetDefault("security.allowed_hosts", []string{"127.0.0.1", "localhost"})
+
+	if err := config.ReadInConfig(); err != nil {
+		log.Printf("No se pudo leer config.toml → usando valores por defecto: %v", err)
+	}
+
 	/* Flag Config */
 
 	startCmd.Flags().BoolVarP(&reload, "reload", "r", false, "reload server on changes")

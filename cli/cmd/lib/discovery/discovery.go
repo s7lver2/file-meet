@@ -14,15 +14,15 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+	"github.com/spf13/viper"
 	"gopkg.in/ini.v1"
 )
 
+var (
+	config          *viper.Viper
+)
+
 const (
-	PORT              = 42532
-	TIMEOUT_CONNECT   = 800 * time.Millisecond
-	TIMEOUT_REQUEST   = 4 * time.Second
-	NETWORK           = "192.168.20.0/24" // cámbialo según tu red
-	MAX_CONCURRENT    = 100
 	OLD_HOST_THRESHOLD = 48 * time.Hour // 48 horas
 )
 
@@ -41,7 +41,7 @@ var (
 // ────────────────────────────────────────────────
 
 func probePort(ctx context.Context, ip string, port int) bool {
-	d := net.Dialer{Timeout: TIMEOUT_CONNECT}
+	d := net.Dialer{Timeout: time.Duration(config.GetInt("scan.timeout_connect")) * time.Millisecond}
 	conn, err := d.DialContext(ctx, "tcp", fmt.Sprintf("%s:%d", ip, port))
 	if err != nil {
 		return false
@@ -63,9 +63,8 @@ func findOpenHosts(networkStr string) ([]string, error) {
 		}
 	}
 
-	fmt.Printf("Escaneando %d hosts en %s puerto %d...\n", len(hosts), networkStr, PORT)
-
-	sem := semaphore.NewWeighted(int64(MAX_CONCURRENT))
+	fmt.Printf("Escaneando %d hosts en %s puerto %d...\n", len(hosts), networkStr, config.GetInt("scan.port"))
+	sem := semaphore.NewWeighted(int64(config.GetInt("scan.port")))
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
@@ -80,8 +79,8 @@ func findOpenHosts(networkStr string) ([]string, error) {
 			}
 			defer sem.Release(1)
 
-			if probePort(ctx, ip, PORT) {
-				fmt.Printf("  ABIERTO → %s:%d\n", ip, PORT)
+			if probePort(ctx, ip, config.GetInt("scan.port")) {
+				fmt.Printf("  ABIERTO → %s:%d\n", ip, config.GetInt("scan.port"))
 				openCh <- ip
 			}
 		}(ip)
@@ -130,8 +129,8 @@ type MeetData struct {
 }
 
 func fetchMeetData(ip string) (*MeetData, error) {
-	url := fmt.Sprintf("http://%s:%d/meet", ip, PORT)
-	client := &http.Client{Timeout: TIMEOUT_REQUEST}
+	url := fmt.Sprintf("http://%s:%d/meet", ip, config.GetInt("scan.port"))
+	client := &http.Client{Timeout: time.Duration(config.GetInt("scan.timeout_request")) * time.Second}
 
 	resp, err := client.Get(url)
 	if err != nil {
@@ -241,7 +240,7 @@ func updateHostsIni(newEntries map[string]*MeetData) error {
             continue
         }
         lastSeen, _ := strconv.ParseInt(lastSeenStr, 10, 64)
-        if time.Unix(lastSeen, 0).Add(OLD_HOST_THRESHOLD).Before(time.Now()) {
+        if time.Unix(lastSeen, 0).Add(time.Duration(config.GetInt("scan.old_host_threshold")) * time.Hour).Before(time.Now()) {
             toRemove = append(toRemove, sec.Name())
         }
     }
@@ -278,10 +277,10 @@ func updateHostsIni(newEntries map[string]*MeetData) error {
 // Función principal
 // ────────────────────────────────────────────────
 
-func DiscoverAndUpdate() error {
+func DiscoverAndUpdate(config *viper.Viper) error {
 	start := time.Now()
 
-	openIPs, err := findOpenHosts(NETWORK)
+	openIPs, err := findOpenHosts(config.GetString("scan.range"))
 	if err != nil {
 		return err
 	}

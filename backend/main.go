@@ -38,11 +38,11 @@ func main() {
 	config.SetDefault("meet.hostname", "localhost")
     config.SetDefault("meet.passphrase", "")
     config.SetDefault("security.allowed_hosts", []string{"127.0.0.1", "localhost"})
-    config.SetDefault("server.port", 42532)
-    config.SetDefault("server.temp_dir", "temp_downloads")
+    config.SetDefault("backend.port", 42532)
+    config.SetDefault("backend.temp_dir", "temp_downloads")
 
 	if err := config.ReadInConfig(); err != nil {
-		log.Printf("No se pudo leer config.ini → usando valores por defecto: %v", err)
+		log.Printf("No se pudo leer config.toml → usando valores por defecto: %v", err)
 	}
 
 	// Cargar allowed hosts (ajusta según cómo lo tengas en tu módulo)
